@@ -19,7 +19,7 @@ type Actor<'a>=MailboxProcessor<'a>
 let rnd=new Random()  
 //setting
 let santaY,elfY,rdeerY=800,300,300
-let elfX,rdeerX=20,650
+let elfX,rdeerX=20,750
 let elfW,rdeerW=600,600
 
 let santaNum,elfNum,rdeerNum=7,30,60
@@ -66,49 +66,43 @@ let spawnSanta santaNum elfNum rdeerNum (notifyE:Event<_>)=
   //santa----------
   let santa id=fun (actor:Actor<_>)->
     let rec loop stat elfs rdeers=async{
+      let accept newId newAccepts others (r:AsyncReplyChannel<_>) nEvtF limit getout startX onFreeNext onXNext=
+        r.Reply FreeTime
+        notify <|nEvtF(newId,id,List.length newAccepts)
+        if List.length newAccepts<limit then onFreeNext
+        else  startX()
+              others|>List.iter(fun (o:Actor<_>)->o.Post<|getout)
+              onXNext
+      let toFreeTime xs evt=
+        xs|>List.iter(fun (e:Actor<_>)->e.Post <|evt)
+        notify<|SantaStateChanged(id,FreeTime)
+        loop FreeTime [] []
       let! msg=actor.Receive()
       let next=msg|>function
         |ElfVisit (elf,elfId,r)->stat|>function
           |FreeTime-> //accept elf
             let elfs=elf::elfs
-            r.Reply FreeTime
-            notify <|AcceptElf(elfId,id,List.length elfs)
-            if List.length elfs<meetingNum then loop FreeTime elfs rdeers
-            else  startMeeting()//start meeting
-                  rdeers|>List.iter(fun (rd:Actor<_>)->rd.Post<|ReindeerEndVisit Getout)
-                  loop OnMeeting elfs []
+            accept elfId elfs rdeers r AcceptElf meetingNum (ReindeerEndVisit Getout) 
+                    startMeeting (loop FreeTime elfs rdeers) (loop OnMeeting elfs [])
           |_->r.Reply stat
               loop stat elfs rdeers
         |ReindeerVisit(rdeer,rdeerId,r)->stat|>function
           |FreeTime-> //accept reindeer
             let rdeers=rdeer::rdeers
-            r.Reply FreeTime
-            notify <|AcceptReindeer(rdeerId,id,List.length rdeers)
-            if List.length rdeers<deliveryNum then loop FreeTime elfs rdeers
-            else  startDelivering()//start delivering
-                  elfs|>List.iter(fun (rd:Actor<_>)->rd.Post<|ElfEndVisit Getout)
-                  loop OnDelivering [] rdeers 
+            accept rdeerId rdeers elfs r AcceptReindeer deliveryNum (ElfEndVisit Getout) 
+                    startDelivering (loop FreeTime elfs rdeers) (loop OnDelivering [] rdeers)
           |_->r.Reply stat
               loop stat elfs rdeers
-        |EndMeeting->
-          elfs|>List.iter(fun e->e.Post <|ElfEndVisit MeetingEnd)
-          notify<|SantaStateChanged(id,FreeTime)
-          loop FreeTime [] []
-        |EndDelivering->
-          rdeers|>List.iter(fun rd->rd.Post<|ReindeerEndVisit DeliveringEnd)
-          notify<|SantaStateChanged(id,FreeTime)
-          loop FreeTime [] []
+        |EndMeeting->   toFreeTime elfs (ElfEndVisit MeetingEnd)
+        |EndDelivering->toFreeTime rdeers (ReindeerEndVisit DeliveringEnd)
       return! next
       }
-    and startMeeting()=
-      async{notify <|SantaStateChanged(id,OnMeeting)
-            do! Async.Sleep(meetingTime)
-            actor.Post EndMeeting
-      }|>Async.Start
-    and startDelivering()=
-      async{notify <|SantaStateChanged(id,OnDelivering)
-            do! Async.Sleep(deliveryTime)
-            actor.Post EndDelivering
+    and startMeeting()=startX OnMeeting meetingTime EndMeeting
+    and startDelivering()=startX OnDelivering deliveryTime EndDelivering
+    and startX stat wait evt=
+      async{notify <|SantaStateChanged(id,stat)
+            do! Async.Sleep(wait)
+            actor.Post evt
       }|>Async.Start
     loop FreeTime [] []
   //elf----------
