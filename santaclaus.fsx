@@ -19,7 +19,7 @@ type Actor<'a>=MailboxProcessor<'a>
 let rnd=new Random()  
 //setting
 let santaY,elfY,rdeerY=800,300,300
-let elfX,rdeerX=20,750
+let elfX,rdeerX=20,1000
 let elfW,rdeerW=600,600
 
 let santaNum,elfNum,rdeerNum=7,30,60
